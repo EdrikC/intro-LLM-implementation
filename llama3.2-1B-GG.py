@@ -2,7 +2,7 @@ import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
 import numpy as np
 import evaluate
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 
 
 model_id = "meta-llama/Llama-3.2-1B"
@@ -18,8 +18,18 @@ pipe = pipeline(
 # Loading dataset from hugging face (Great Gatsby txt)
 ds = load_dataset("TeacherPuffy/book")
 
-# This line prints out the "train" split where each index is a line number
-print(ds["train"][100])
+# Creating the train/validation/test splits
+train_testvalid = ds["train"].train_test_split(test_size=0.2, seed=42)
+test_valid = train_testvalid["test"].train_test_split(test_size=0.5, seed=42)
+
+ds_split = DatasetDict({
+    "train": train_testvalid["train"],
+    "validation": test_valid["train"],
+    "test": test_valid["test"]
+})
+
+print(ds_split)
+
 
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -36,7 +46,7 @@ def tokenize_function(examples):
     outputs["labels"] = outputs["input_ids"].copy()  # Set labels to be identical to input_ids
     return outputs
 
-tokenized_datasets = ds.map(tokenize_function)
+tokenized_datasets = ds_split.map(tokenize_function)
 print(tokenized_datasets)
 
 
@@ -50,7 +60,15 @@ model.config.pad_token_id = tokenizer.eos_token_id  # Update model configuration
 model.resize_token_embeddings(len(tokenizer))
 
 # Contains all hyperparameters
-training_args = TrainingArguments(output_dir="test_trainer", num_train_epochs=10, logging_strategy="epoch")
+training_args = TrainingArguments(
+    output_dir="test_trainer", 
+    num_train_epochs=5,
+    logging_strategy="epoch",
+    evaluation_strategy="epoch",  # Evaluate at the end of each epoch
+    save_strategy="epoch",  # Save checkpoint at the end of each epoch
+    load_best_model_at_end=True,  # Load the best model at the end of training
+    metric_for_best_model="accuracy"  # Accuracy to determine the best model
+)
 
 # Computes and reports metrics during training
 metric = evaluate.load("accuracy")
@@ -74,6 +92,7 @@ trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
+    eval_dataset=tokenized_datasets["validation"],
     compute_metrics=compute_metrics,
 )
 
@@ -82,7 +101,9 @@ trainer.add_callback(LogEpochLossCallback)
 # Launch training
 trainer.train()
 
-
+# Evaluate on the test set
+test_results = trainer.evaluate(tokenized_datasets["test"])
+print(f"Test results: {test_results}")
 
 
 # Save model
