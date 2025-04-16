@@ -27,7 +27,12 @@ tokenizer.pad_token = tokenizer.eos_token
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Ensure pad_token_id is set
 
 def tokenize_function(examples):
-    outputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=128)
+    outputs = tokenizer(
+        examples["text"], 
+        padding="max_length", 
+        truncation=True, 
+        max_length=512,
+        ) 
     outputs["labels"] = outputs["input_ids"].copy()  # Set labels to be identical to input_ids
     return outputs
 
@@ -45,7 +50,7 @@ model.config.pad_token_id = tokenizer.eos_token_id  # Update model configuration
 model.resize_token_embeddings(len(tokenizer))
 
 # Contains all hyperparameters
-training_args = TrainingArguments(output_dir="test_trainer", num_train_epochs=2)
+training_args = TrainingArguments(output_dir="test_trainer", num_train_epochs=10, logging_strategy="epoch")
 
 # Computes and reports metrics during training
 metric = evaluate.load("accuracy")
@@ -76,3 +81,14 @@ trainer.add_callback(LogEpochLossCallback)
 
 # Launch training
 trainer.train()
+
+
+
+
+# Save model
+trainer.save_model("great_gatsby_llm")
+tokenizer.save_pretrained("great_gatsby_llm")
+
+
+
+
