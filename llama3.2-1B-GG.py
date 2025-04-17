@@ -62,22 +62,41 @@ model.resize_token_embeddings(len(tokenizer))
 # Contains all hyperparameters
 training_args = TrainingArguments(
     output_dir="test_trainer", 
-    num_train_epochs=5,
+    num_train_epochs=2,
     logging_strategy="epoch",
     eval_strategy="epoch",  # Evaluate at the end of each epoch
     save_strategy="epoch",  # Save checkpoint at the end of each epoch
     load_best_model_at_end=True,  # Load the best model at the end of training
-    metric_for_best_model="accuracy"  # Accuracy to determine the best model
+    metric_for_best_model="perplexity",  # Perplexity to determine the best model
+    per_device_train_batch_size=1,
+    per_device_eval_batch_size=1,
+    greater_is_better=False,
 )
 
-# Computes and reports metrics during training
-metric = evaluate.load("accuracy")
 
-# Calculates accuracy of the predictions
+# Calculates perplexity of the predictions
+# Perplexity measures how well the model predicts the sample. A lower perplexity indicates better performance
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+    shift_logits = logits[..., :-1, :]
+    shift_labels = labels[..., 1:]
+    
+    # Flatten the arrays
+    shift_logits = shift_logits.reshape(-1, shift_logits.shape[-1])
+    shift_labels = shift_labels.reshape(-1)
+    
+    # Calculate log probabilities
+    log_probs = -np.log(np.exp(shift_logits) / np.sum(np.exp(shift_logits), axis=-1, keepdims=True))
+    
+    # Select the log probability of the correct token
+    per_example_loss = log_probs[np.arange(len(shift_labels)), shift_labels]
+    
+    # Calculate perplexity
+    perplexity = np.exp(np.mean(per_example_loss))
+    
+    return {"perplexity": perplexity}
+
+
 
 # Define a callback to print training loss at the end of each epoch
 class LogEpochLossCallback(TrainerCallback):
